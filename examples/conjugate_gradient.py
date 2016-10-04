@@ -19,21 +19,19 @@
 
 import odl
 import odlemrecon
+import numpy as np
 
+fov = np.array([590.625, 590.625, 158.625])
 shape = [175, 175, 47]
 ran_shape = [192, 192, 175]
 
 settings = {'SCANNERTYPE': 3,
-            'SIZE_X': shape[0],
-            'SIZE_Y': shape[1],
-            'SIZE_Z': shape[2],
             'VERBOSE': 0}
-settings_file_name = odlemrecon.make_settings_file(settings)
 
-space = odl.uniform_discr([0]*3, shape, shape)
+space = odl.uniform_discr(-fov/2, fov/2, shape)
 ran = odl.uniform_discr([0]*3, ran_shape, ran_shape)
 
-op = odlemrecon.EMReconForwardProjector(settings_file_name, space, ran)
+op = odlemrecon.EMReconForwardProjector(space, ran, settings=settings)
 
 phantom = odl.phantom.shepp_logan(space, modified=True)
 phantom.show('phantom')

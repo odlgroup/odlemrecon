@@ -23,13 +23,35 @@ import odl
 import numpy as np
 import os
 
+from odlemrecon.util import make_settings_file
 
 __all__ = ('EMReconForwardProjector', 'EMReconBackProjector')
 
 
+def _settings_from_domain(domain):
+    settings_from_domain = {'SIZE_X': domain.shape[0],
+                            'SIZE_Y': domain.shape[1],
+                            'SIZE_Z': domain.shape[2],
+                            'OFFSET_X': domain.min_pt[0],
+                            'OFFSET_Y': domain.min_pt[1],
+                            'OFFSET_Z': domain.min_pt[2],
+                            'FOV_X': domain.domain.extent()[0],
+                            'FOV_Y': domain.domain.extent()[1],
+                            'FOV_Z': domain.domain.extent()[2]}
+    return settings_from_domain
+
+
 class EMReconForwardProjector(odl.Operator):
-    def __init__(self, settings_file_name, domain, range,
-                 volume_file_name=None, sinogram_file_name=None):
+    def __init__(self, domain, range,
+                 settings=None, settings_file_name=None):
+        if settings_file_name is None and settings is None:
+            settings = {}
+        elif settings_file_name is not None and settings is not None:
+            raise ValueError('need either `settings_file_name` or `settings`')
+        elif settings is not None:
+            settings.update(_settings_from_domain(domain))
+            settings_file_name = make_settings_file(settings)
+
         self.settings_file_name = settings_file_name
         self.volume_file = tempfile.NamedTemporaryFile(mode='w+')
         self.sinogram_file = tempfile.NamedTemporaryFile(mode='r')
@@ -56,12 +78,22 @@ class EMReconForwardProjector(odl.Operator):
 
     @property
     def adjoint(self):
-        return EMReconBackProjector(self.settings_file_name,
-                                    self.range, self.domain)
+        return EMReconBackProjector(
+            self.range, self.domain,
+            settings_file_name=self.settings_file_name)
 
 
 class EMReconBackProjector(odl.Operator):
-    def __init__(self, settings_file_name, domain, range):
+    def __init__(self, domain, range,
+                 settings=None, settings_file_name=None):
+        if settings_file_name is None and settings is None:
+            settings = {}
+        elif settings_file_name is not None and settings is not None:
+            raise ValueError('need either `settings_file_name` or `settings`')
+        elif settings is not None:
+            settings.update(_settings_from_domain(domain))
+            settings_file_name = make_settings_file(settings)
+
         self.settings_file_name = settings_file_name
         self.sinogram_file = tempfile.NamedTemporaryFile(mode='w+')
         self.backproj_file = tempfile.NamedTemporaryFile(mode='r')
@@ -83,12 +115,16 @@ class EMReconBackProjector(odl.Operator):
         backproj = np.fromfile(self.backproj_file.name, dtype='float32')
         backproj = backproj.reshape(self.range.shape, order='F')
 
+        # Scale the adjoint properly
+        backproj /= self.range.cell_volume
+
         return backproj
 
     @property
     def adjoint(self):
-        return EMReconForwardProjector(self.settings_file_name,
-                                       self.range, self.domain)
+        return EMReconForwardProjector(
+            self.range, self.domain,
+            settings_file_name=self.settings_file_name)
 
 if __name__ == '__main__':
     import odl
