@@ -2,42 +2,36 @@ import odl
 import os
 import tempfile
 import numpy as np
-import matplotlib.pyplot as plt
 
-shape = [175, 175, 47]
-ran_shape = [192, 192, 175]
 
-settings = """SCANNERTYPE=3
-SIZE_X={shape[0]}
-SIZE_Y={shape[1]}
-SIZE_Z={shape[2]}
-VERBOSE=0
-""".format(shape=shape)
+def make_settings_file(settings):
+    settings_str = '\n'.join('{}={}'.format(key, settings[key])
+                             for key in settings)
 
-settings_file = tempfile.NamedTemporaryFile(delete=False)
-settings_file.write(settings)
-settings_file_name = settings_file.name
-settings_file.close()
+    with tempfile.NamedTemporaryFile(delete=False) as settings_file:
+        settings_file.write(settings_str)
+        settings_file_name = settings_file.name
+
+    return settings_file_name
+
 
 class MyOperator(odl.Operator):
-    def __init__(self, domain, range):
+    def __init__(self, settings_file_name, domain, range,
+                 volume_file_name=None, sinogram_file_name=None):
+        self.settings_file_name = settings_file_name
         odl.Operator.__init__(self, domain, range, linear=True)
 
     def _call(self, volume):
-        volume_file = tempfile.NamedTemporaryFile(delete=False)
-        volume_file.write(np.asfortranarray(volume, dtype='float32').tobytes())
-        volume_file_name = volume_file.name
-        volume_file.close()
+        with tempfile.NamedTemporaryFile(delete=False) as volume_file:
+            fortranvolume = np.asfortranarray(volume, dtype='float32')
+            volume_file.write(fortranvolume.tobytes())
+            volume_file_name = volume_file.name
 
-        sinogram_file = tempfile.NamedTemporaryFile(delete=False)
-        sinogram_file_name = sinogram_file.name
-        sinogram_file.close()
+        with tempfile.NamedTemporaryFile(delete=False) as sinogram_file:
+            sinogram_file_name = sinogram_file.name
 
         command = 'echo "4" | EMrecon_siemens_pet_tools {} {} {}'.format(
-            settings_file_name, volume_file_name, sinogram_file_name)
-
-        print('FORWARD, CALLING COMMAND:')
-        print(command)
+            self.settings_file_name, volume_file_name, sinogram_file_name)
         os.system(command)
 
         with open(sinogram_file_name) as sinogram_file:
@@ -49,28 +43,25 @@ class MyOperator(odl.Operator):
 
     @property
     def adjoint(self):
-        return MyOperatorAdjoint(self.range, self.domain)
+        return MyOperatorAdjoint(self.settings_file_name,
+                                 self.range, self.domain)
 
 
 class MyOperatorAdjoint(odl.Operator):
-    def __init__(self, domain, range):
+    def __init__(self, settings_file_name, domain, range):
+        self.settings_file_name = settings_file_name
         odl.Operator.__init__(self, domain, range, linear=True)
 
     def _call(self, sinogram):
-        sinogram_file = tempfile.NamedTemporaryFile(delete=False)
-        sinogram_file.write(np.asfortranarray(sinogram).tobytes())
-        sinogram_file_name = sinogram_file.name
-        sinogram_file.close()
+        with tempfile.NamedTemporaryFile(delete=False) as sinogram_file:
+            sinogram_file.write(np.asfortranarray(sinogram).tobytes())
+            sinogram_file_name = sinogram_file.name
 
-        backproj_file = tempfile.NamedTemporaryFile(delete=False)
-        backproj_file_name = backproj_file.name
-        backproj_file.close()
+        with tempfile.NamedTemporaryFile(delete=False) as backproj_file:
+            backproj_file_name = backproj_file.name
 
         command = 'echo "5" | EMrecon_siemens_pet_tools {} {} {}'.format(
-            settings_file_name, sinogram_file_name, backproj_file_name)
-
-        print('BACKWARD, CALLING COMMAND:')
-        print(command)
+            self.settings_file_name, sinogram_file_name, backproj_file_name)
         os.system(command)
 
         with open(backproj_file_name) as backproj_file:
@@ -82,12 +73,24 @@ class MyOperatorAdjoint(odl.Operator):
 
     @property
     def adjoint(self):
-        return MyOperator(self.range, self.domain)
+        return MyOperator(self.settings_file_name, self.range, self.domain)
 
-space = odl.uniform_discr([0]*3, shape[::-1], shape[::-1], dtype='float32')
-ran = odl.uniform_discr([0]*3, ran_shape[::-1], ran_shape[::-1], dtype='float32')
+shape = [175, 175, 47]
+ran_shape = [192, 192, 175]
 
-op = MyOperator(space, ran)
+settings = {'SCANNERTYPE':3,
+            'SIZE_X':shape[0],
+            'SIZE_Y':shape[1],
+            'SIZE_Z':shape[2],
+            'VERBOSE':0}
+settings_file_name = make_settings_file(settings)
+
+space = odl.uniform_discr([0]*3, shape[::-1], shape[::-1],
+                          dtype='float32')
+ran = odl.uniform_discr([0]*3, ran_shape[::-1], ran_shape[::-1],
+                        dtype='float32')
+
+op = MyOperator(settings_file_name, space, ran)
 
 phantom = odl.phantom.shepp_logan(space, modified=True)
 phantom.show()
