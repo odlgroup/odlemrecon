@@ -42,7 +42,7 @@ projection.show('projection')
 opnorm = projection.norm() / phantom.norm()
 omega = 0.5/opnorm**2
 
-callback = odl.solvers.CallbackShow()
+callback = odl.solvers.CallbackShow('iterates')
 
 x = space.zero()
 odl.solvers.landweber(op, x, projection, omega=omega, niter=100,

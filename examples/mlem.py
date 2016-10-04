@@ -21,32 +21,29 @@ import odl
 import odlemrecon
 import numpy as np
 
+fov = np.array([590.625, 590.625, 158.625])
 shape = [175, 175, 47]
 ran_shape = [192, 192, 175]
 
 settings = {'SCANNERTYPE': 3,
-            'SIZE_X': shape[0],
-            'SIZE_Y': shape[1],
-            'SIZE_Z': shape[2],
             'VERBOSE': 0}
-settings_file_name = odlemrecon.make_settings_file(settings)
 
-space = odl.uniform_discr([0]*3, shape, shape)
+space = odl.uniform_discr(-fov/2, fov/2, shape)
 ran = odl.uniform_discr([0]*3, ran_shape, ran_shape)
 
-op = odlemrecon.EMReconForwardProjector(settings_file_name, space, ran)
+op = odlemrecon.EMReconForwardProjector(space, ran, settings=settings)
 
 phantom = odl.phantom.shepp_logan(space, modified=True)
-phantom.show()
+phantom.show('phantom')
 
 projection = op(phantom)
-projection.show()
+projection.show('projection')
 
 scale = 100 / np.max(projection)
 noisy_projection = odl.phantom.poisson_noise(projection * scale) / scale
-noisy_projection.show('noisy_projection')
+noisy_projection.show('noisy projection')
 
-callback = odl.solvers.CallbackShow()
+callback = odl.solvers.CallbackShow('iterates')
 
 x = space.one() * 0.1
-odl.solvers.mlem(op, x, noisy_projection, niter=100, callback=callback)
+odl.solvers.mlem(op, x, noisy_projection, niter=5, callback=callback)

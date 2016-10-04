@@ -39,7 +39,7 @@ phantom.show('phantom')
 projection = op(phantom)
 projection.show('projection')
 
-callback = odl.solvers.CallbackShow()
+callback = odl.solvers.CallbackShow('iterates')
 
 x = space.zero()
 odl.solvers.conjugate_gradient_normal(op, x, projection, niter=100,
