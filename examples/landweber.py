@@ -22,22 +22,25 @@ class MyOperator(odl.Operator):
         odl.Operator.__init__(self, domain, range, linear=True)
 
     def _call(self, volume):
-        with tempfile.NamedTemporaryFile(delete=False) as volume_file:
+        with tempfile.NamedTemporaryFile(mode='w+') as volume_file, \
+             tempfile.NamedTemporaryFile(mode='r') as sinogram_file:
+
+            # Copy volume to disk
             fortranvolume = np.asfortranarray(volume, dtype='float32')
+            fortranvolume = fortranvolume.swapaxes(0, 2)
             volume_file.write(fortranvolume.tobytes())
             volume_file_name = volume_file.name
+            volume_file.flush()
 
-        with tempfile.NamedTemporaryFile(delete=False) as sinogram_file:
+            # Get sinogram "path"
             sinogram_file_name = sinogram_file.name
 
-        command = 'echo "4" | EMrecon_siemens_pet_tools {} {} {}'.format(
-            self.settings_file_name, volume_file_name, sinogram_file_name)
-        os.system(command)
+            command = 'echo "4" | EMrecon_siemens_pet_tools {} {} {}'.format(
+                self.settings_file_name, volume_file_name, sinogram_file_name)
+            os.system(command)
 
-        with open(sinogram_file_name) as sinogram_file:
-            sinogram = np.fromfile(sinogram_file, dtype='float32')
-            sinogram = sinogram.reshape(self.range.shape[::-1], order='F')
-            sinogram = sinogram.swapaxes(0, 2)
+            sinogram = np.fromfile(sinogram_file_name, dtype='float32')
+            sinogram = sinogram.reshape(self.range.shape, order='F')
 
         return sinogram
 
@@ -53,21 +56,20 @@ class MyOperatorAdjoint(odl.Operator):
         odl.Operator.__init__(self, domain, range, linear=True)
 
     def _call(self, sinogram):
-        with tempfile.NamedTemporaryFile(delete=False) as sinogram_file:
-            sinogram_file.write(np.asfortranarray(sinogram).tobytes())
+        with tempfile.NamedTemporaryFile(mode='w+') as sinogram_file, \
+             tempfile.NamedTemporaryFile(mode='r') as backproj_file:
+            fortransinogram = np.asfortranarray(sinogram, dtype='float32')
+            fortransinogram = fortransinogram.swapaxes(0, 2)
+            sinogram_file.write(fortransinogram.tobytes())
             sinogram_file_name = sinogram_file.name
 
-        with tempfile.NamedTemporaryFile(delete=False) as backproj_file:
-            backproj_file_name = backproj_file.name
+            command = 'echo "5" | EMrecon_siemens_pet_tools {} {} {}'.format(
+                self.settings_file_name, sinogram_file_name,
+                backproj_file.name)
+            os.system(command)
 
-        command = 'echo "5" | EMrecon_siemens_pet_tools {} {} {}'.format(
-            self.settings_file_name, sinogram_file_name, backproj_file_name)
-        os.system(command)
-
-        with open(backproj_file_name) as backproj_file:
-            backproj = np.fromfile(backproj_file, dtype='float32')
-            backproj = backproj.reshape(self.range.shape[::-1], order='F')
-            backproj = backproj.swapaxes(0, 2)
+            backproj = np.fromfile(backproj_file.name, dtype='float32')
+            backproj = backproj.reshape(self.range.shape, order='F')
 
         return backproj
 
@@ -85,10 +87,8 @@ settings = {'SCANNERTYPE':3,
             'VERBOSE':0}
 settings_file_name = make_settings_file(settings)
 
-space = odl.uniform_discr([0]*3, shape[::-1], shape[::-1],
-                          dtype='float32')
-ran = odl.uniform_discr([0]*3, ran_shape[::-1], ran_shape[::-1],
-                        dtype='float32')
+space = odl.uniform_discr([0]*3, shape, shape)
+ran = odl.uniform_discr([0]*3, ran_shape, ran_shape)
 
 op = MyOperator(settings_file_name, space, ran)
 
@@ -96,11 +96,13 @@ phantom = odl.phantom.shepp_logan(space, modified=True)
 phantom.show()
 
 projection = op(phantom)
+projection.show()
 
 opnorm = projection.norm() / phantom.norm()
-omega = 0.5/opnorm**2
+omega = 0.8/opnorm**2
 
 callback = odl.solvers.CallbackShow()
 
 x = space.zero()
-odl.solvers.landweber(op, x, projection, omega=omega, niter=100, callback=callback)
+odl.solvers.landweber(op, x, projection, omega=omega, niter=100,
+                      callback=callback)
