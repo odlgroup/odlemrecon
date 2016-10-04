@@ -31,28 +31,26 @@ class EMReconForwardProjector(odl.Operator):
     def __init__(self, settings_file_name, domain, range,
                  volume_file_name=None, sinogram_file_name=None):
         self.settings_file_name = settings_file_name
+        self.volume_file = tempfile.NamedTemporaryFile(mode='w+')
+        self.sinogram_file = tempfile.NamedTemporaryFile(mode='r')
         odl.Operator.__init__(self, domain, range, linear=True)
 
     def _call(self, volume):
-        with tempfile.NamedTemporaryFile(mode='w+') as volume_file, \
-             tempfile.NamedTemporaryFile(mode='r') as sinogram_file:
+        # Copy volume to disk
+        fortranvolume = np.asfortranarray(volume, dtype='float32')
+        fortranvolume = fortranvolume.swapaxes(0, 2)
+        self.volume_file.seek(0)
+        self.volume_file.write(fortranvolume.tobytes())
+        self.volume_file.flush()
 
-            # Copy volume to disk
-            fortranvolume = np.asfortranarray(volume, dtype='float32')
-            fortranvolume = fortranvolume.swapaxes(0, 2)
-            volume_file.write(fortranvolume.tobytes())
-            volume_file_name = volume_file.name
-            volume_file.flush()
+        command = 'echo "4" | EMrecon_siemens_pet_tools {} {} {} > /dev/null'.format(
+            self.settings_file_name,
+            self.volume_file.name,
+            self.sinogram_file.name)
+        os.system(command)
 
-            # Get sinogram "path"
-            sinogram_file_name = sinogram_file.name
-
-            command = 'echo "4" | EMrecon_siemens_pet_tools {} {} {}'.format(
-                self.settings_file_name, volume_file_name, sinogram_file_name)
-            os.system(command)
-
-            sinogram = np.fromfile(sinogram_file_name, dtype='float32')
-            sinogram = sinogram.reshape(self.range.shape, order='F')
+        sinogram = np.fromfile(self.sinogram_file.name, dtype='float32')
+        sinogram = sinogram.reshape(self.range.shape, order='F')
 
         return sinogram
 
@@ -65,23 +63,25 @@ class EMReconForwardProjector(odl.Operator):
 class EMReconBackProjector(odl.Operator):
     def __init__(self, settings_file_name, domain, range):
         self.settings_file_name = settings_file_name
+        self.sinogram_file = tempfile.NamedTemporaryFile(mode='w+')
+        self.backproj_file = tempfile.NamedTemporaryFile(mode='r')
         odl.Operator.__init__(self, domain, range, linear=True)
 
     def _call(self, sinogram):
-        with tempfile.NamedTemporaryFile(mode='w+') as sinogram_file, \
-             tempfile.NamedTemporaryFile(mode='r') as backproj_file:
-            fortransinogram = np.asfortranarray(sinogram, dtype='float32')
-            fortransinogram = fortransinogram.swapaxes(0, 2)
-            sinogram_file.write(fortransinogram.tobytes())
-            sinogram_file_name = sinogram_file.name
+        fortransinogram = np.asfortranarray(sinogram, dtype='float32')
+        fortransinogram = fortransinogram.swapaxes(0, 2)
+        self.sinogram_file.seek(0)
+        self.sinogram_file.write(fortransinogram.tobytes())
+        self.sinogram_file.flush()
 
-            command = 'echo "5" | EMrecon_siemens_pet_tools {} {} {}'.format(
-                self.settings_file_name, sinogram_file_name,
-                backproj_file.name)
-            os.system(command)
+        command = 'echo "5" | EMrecon_siemens_pet_tools {} {} {} > /dev/null'.format(
+            self.settings_file_name,
+            self.sinogram_file.name,
+            self.backproj_file.name)
+        os.system(command)
 
-            backproj = np.fromfile(backproj_file.name, dtype='float32')
-            backproj = backproj.reshape(self.range.shape, order='F')
+        backproj = np.fromfile(self.backproj_file.name, dtype='float32')
+        backproj = backproj.reshape(self.range.shape, order='F')
 
         return backproj
 
