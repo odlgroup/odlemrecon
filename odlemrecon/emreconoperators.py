@@ -25,7 +25,8 @@ import os
 
 from odlemrecon.util import make_settings_file
 
-__all__ = ('EMReconForwardProjector', 'EMReconBackProjector')
+__all__ = ('EMReconForwardProjector', 'EMReconBackProjector',
+           'EMReconAttenuationCorrection', 'EMReconScatteringSimulation')
 
 
 def _settings_from_domain(domain):
@@ -42,8 +43,7 @@ def _settings_from_domain(domain):
 
 
 class EMReconForwardProjector(odl.Operator):
-    def __init__(self, domain, range,
-                 settings=None, settings_file_name=None):
+    def __init__(self, domain, range, settings=None, settings_file_name=None):
         if settings_file_name is None and settings is None:
             settings = {}
         elif settings_file_name is not None and settings is not None:
@@ -84,8 +84,7 @@ class EMReconForwardProjector(odl.Operator):
 
 
 class EMReconBackProjector(odl.Operator):
-    def __init__(self, domain, range,
-                 settings=None, settings_file_name=None):
+    def __init__(self, domain, range, settings=None, settings_file_name=None):
         if settings_file_name is None and settings is None:
             settings = {}
         elif settings_file_name is not None and settings is not None:
@@ -125,6 +124,93 @@ class EMReconBackProjector(odl.Operator):
         return EMReconForwardProjector(
             self.range, self.domain,
             settings_file_name=self.settings_file_name)
+
+
+class EMReconAttenuationCorrection(odl.Operator):
+    """Attenuation as data-to-data mapping.
+    
+    Requires ``settings`` to contain a ``'UMAPFILENAME'`` entry.
+    """
+    def __init__(self, sinogram_space, settings=None, settings_file_name=None):
+        if settings_file_name is None and settings is None:
+            settings = {}
+        elif settings_file_name is not None and settings is not None:
+            raise ValueError('need either `settings_file_name` or `settings`')
+        elif settings is not None:
+            self.umapfile = settings['UMAPFILENAME']
+            settings_file_name = make_settings_file(settings)
+
+        self.settings_file_name = settings_file_name
+        self.sinogram_in = tempfile.NamedTemporaryFile(mode='w+', delete=False)
+        self.sinogram_out = tempfile.NamedTemporaryFile(mode='r', delete=False)
+        odl.Operator.__init__(self, domain=sinogram_space,
+                              range=sinogram_space, linear=True)
+
+    def _call(self, volume):
+        # Copy volume to disk
+        fortranvolume = np.asfortranarray(volume, dtype='float32')
+        fortranvolume = fortranvolume.swapaxes(0, 2)
+        self.sinogram_in.seek(0)
+        self.sinogram_in.write(fortranvolume.tobytes())
+        self.sinogram_in.flush()
+
+        command = 'echo "3" | EMrecon_siemens_pet_tools {} {} {} {} > /dev/null'.format(
+            self.settings_file_name,
+            self.umapfile,
+            self.sinogram_in.name,
+            self.sinogram_out.name)
+        os.system(command)
+
+        sinogram = np.fromfile(self.sinogram_out.name, dtype='float32')
+        sinogram = sinogram.reshape(self.range.shape, order='F')
+
+        return sinogram
+
+
+class EMReconScatteringSimulation(odl.Operator):
+    def __init__(self, domain, range, sinogram, settings=None,
+                 settings_file_name=None):
+        if settings_file_name is None and settings is None:
+            settings = {}
+        elif settings_file_name is not None and settings is not None:
+            raise ValueError('need either `settings_file_name` or `settings`')
+        elif settings is not None:
+            settings.update(_settings_from_domain(domain))
+            settings_file_name = make_settings_file(settings)
+            self.umap_file_name = settings['UMAPFILENAME']
+
+        self.settings_file_name = settings_file_name
+        self.volume_file = tempfile.NamedTemporaryFile(mode='w+')
+        self.scatter_file = tempfile.NamedTemporaryFile(mode='r')
+        self.sinogram_in = tempfile.NamedTemporaryFile(mode='w+', delete=False)
+        fortransino = np.asfortranarray(sinogram, dtype='float32')
+        fortransino = fortransino.swapaxes(0, 2)
+        self.sinogram_in.seek(0)
+        self.sinogram_in.write(fortransino.tobytes())
+        self.sinogram_in.flush()
+        odl.Operator.__init__(self, domain, range, linear=False)
+
+    def _call(self, volume):
+        # Copy volume to disk
+        fortranvolume = np.asfortranarray(volume, dtype='float32')
+        fortranvolume = fortranvolume.swapaxes(0, 2)
+        self.volume_file.seek(0)
+        self.volume_file.write(fortranvolume.tobytes())
+        self.volume_file.flush()
+
+        command = 'echo "7" | EMrecon_siemens_pet_tools {} {} {} {} -1 {} > /dev/null'.format(
+            self.settings_file_name,
+            self.volume_file.name,
+            self.umap_file_name,
+            self.sinogram_in.name,
+            self.scatter_file.name)
+        os.system(command)
+
+        scatter = np.fromfile(self.scatter_file.name, dtype='float32')
+        scatter = scatter.reshape(self.range.shape, order='F')
+
+        return scatter
+
 
 if __name__ == '__main__':
     import odl
