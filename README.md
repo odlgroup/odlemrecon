@@ -5,7 +5,7 @@
 
 To get odlemrecon, clone the repository with the command
 
-    user$ git clone https://github.com/odlgroup/odl
+    user$ git clone https://github.com/odlgroup/odlemrecon
 
 No GitHub account is required for this step. For installation in a local user folder, enter the top-level directory of the cloned repository and run
 
