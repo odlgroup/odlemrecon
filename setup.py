@@ -29,7 +29,7 @@ from setuptools import setup, find_packages
 setup(
     name='odlemrecon',
 
-    version='0.0.0',
+    version='0.1.0',
 
     description='ODL bindings for EMRecon',
 
