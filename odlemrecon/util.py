@@ -21,7 +21,26 @@
 import tempfile
 
 
-__all__ = ('make_settings_file',)
+__all__ = ('settings_from_domain', 'make_settings_file',)
+
+
+def settings_from_domain(domain):
+    """Create settings from the parameters of a domain.
+
+    Parameters
+    ----------
+    domain : `DiscreteLp`
+        The volume space.
+    """
+    return {'SIZE_X': domain.shape[0],
+            'SIZE_Y': domain.shape[1],
+            'SIZE_Z': domain.shape[2],
+            'OFFSET_X': domain.min_pt[0],
+            'OFFSET_Y': domain.min_pt[1],
+            'OFFSET_Z': domain.min_pt[2],
+            'FOV_X': domain.domain.extent()[0],
+            'FOV_Y': domain.domain.extent()[1],
+            'FOV_Z': domain.domain.extent()[2]}
 
 
 def make_settings_file(settings):
